@@ -465,5 +465,13 @@ def setbrowser(browser: str | None):
     do_setbrowser(browser)
 
 
+@main.command(help=COMMAND_HELP["sethotkey"].strip())
+@click.argument("action", required=False)
+def sethotkey(action: str | None):
+    """Set a global hotkey to focus this terminal (interactive mode only)."""
+    click.echo("The sethotkey command is only available in interactive mode.")
+    click.echo("Run 'zoa' to enter interactive mode, then type 'sethotkey'.")
+
+
 if __name__ == "__main__":
     main()

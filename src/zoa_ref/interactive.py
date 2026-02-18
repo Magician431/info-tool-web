@@ -30,6 +30,8 @@ from .commands import (
     do_scratchpad_lookup,
     do_approaches_lookup,
     do_setbrowser,
+    do_sethotkey,
+    do_clear_hotkey,
     do_cifp_lookup,
 )
 from .descent import is_fix_identifier
@@ -444,6 +446,22 @@ def _handle_setbrowser_interactive(args: str) -> None:
     do_setbrowser(browser)
 
 
+def _handle_sethotkey_interactive(args: str, ctx: InteractiveContext | None = None) -> None:
+    """Handle 'sethotkey [clear]' command in interactive mode."""
+    parsed = parse_interactive_args(args)
+    if parsed.show_help:
+        from .cli import main
+
+        print_command_help("sethotkey", main)
+        return
+
+    if parsed.positional and parsed.positional[0].lower() in ("clear", "none", "off"):
+        do_clear_hotkey(ctx)
+        return
+
+    do_sethotkey(ctx)
+
+
 def _handle_cifp_interactive(args: str) -> None:
     """Handle 'cifp <airport> <procedure>' command in interactive mode."""
     parsed = parse_interactive_args(args)
@@ -490,6 +508,7 @@ INTERACTIVE_COMMANDS: dict[str, tuple] = {
     "tdls": (_handle_tdls_interactive, 4, False),
     "strips": (_handle_strips_interactive, 6, False),
     "setbrowser": (_handle_setbrowser_interactive, 10, False),
+    "sethotkey": (_handle_sethotkey_interactive, 9, True),
 }
 
 
@@ -532,6 +551,21 @@ def interactive_mode(use_playwright: bool = False):
             else None
         ),
     )
+
+    # Restore saved global hotkey if any (Windows only)
+    import sys
+
+    if sys.platform == "win32":
+        from .hotkey import load_hotkey_preference, format_hotkey, HotkeyManager
+
+        saved = load_hotkey_preference()
+        if saved:
+            modifiers, vk_code = saved
+            manager = HotkeyManager()
+            if manager.register(modifiers, vk_code):
+                ctx.hotkey_manager = manager
+                click.echo(f"Hotkey restored: {format_hotkey(modifiers, vk_code)}")
+                click.echo()
 
     # Create shared history for both auto-suggest and completion menu
     HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -626,6 +660,10 @@ def interactive_mode(use_playwright: bool = False):
             click.echo()
 
     finally:
+        # Clean up hotkey manager before browser sessions
+        if ctx.hotkey_manager is not None:
+            ctx.hotkey_manager.cleanup()
+
         ctx.codes_page.close()
         # Stop child session first (visible browser), then parent (headless)
         # Parent owns the Playwright instance, so it must be stopped last

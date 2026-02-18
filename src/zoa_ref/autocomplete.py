@@ -55,6 +55,7 @@ INTERACTIVE_COMMANDS = [
     "tdls",
     "strips",
     "setbrowser",
+    "sethotkey",
     "help",
     "quit",
 ]

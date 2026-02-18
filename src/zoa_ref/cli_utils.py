@@ -170,6 +170,7 @@ INTERACTIVE_HELP_COMMANDS = [
     "  mea <route> [-a <alt>]     - MEA/MOCA for route (alt in hundreds)",
     "Settings:",
     "  setbrowser [browser]      - Set preferred browser (e.g., setbrowser firefox)",
+    "  sethotkey [clear]         - Set global hotkey to focus this terminal",
 ]
 
 # Detailed help for individual commands (used by "help <command>")
@@ -556,6 +557,30 @@ Examples:
 
 The preference is saved to ~/.zoa-ref/browser_pref.txt
 """,
+    "sethotkey": """
+sethotkey - Set a global hotkey to focus this terminal (Windows only)
+
+Enters a key listening mode where you press a key combination.
+The captured combo is registered as a system-wide hotkey.
+When triggered from any application, this terminal gets focus.
+
+Requires at least one modifier (Ctrl, Alt, Shift) plus a key.
+The hotkey preference is saved and auto-restored on startup.
+
+\b
+Key capture mode:
+  - Press a key combination (e.g., Ctrl+Shift+F1)
+  - Enter = confirm and register the hotkey
+  - Esc   = clear the current capture (or cancel if empty)
+
+\b
+Examples:
+  sethotkey              - Enter key capture mode
+  sethotkey clear        - Remove the current hotkey
+  sethotkey off          - Same as clear
+
+The preference is saved to ~/.zoa-ref/hotkey_pref.txt
+""",
 }
 
 
@@ -570,6 +595,7 @@ class InteractiveContext:
     codes_page: CodesPage
     use_playwright: bool
     visible_session: BrowserSession | None = field(default=None)
+    hotkey_manager: object | None = field(default=None)
 
     def get_or_create_visible_session(self) -> BrowserSession:
         """Get or create the visible browser session.

@@ -1459,6 +1459,78 @@ def do_setbrowser(browser: str | None = None) -> None:
         click.echo("Failed to save browser preference", err=True)
 
 
+def do_sethotkey(ctx) -> None:
+    """Enter hotkey capture mode and register a global hotkey.
+
+    Args:
+        ctx: InteractiveContext with hotkey_manager field.
+    """
+    import sys
+
+    if sys.platform != "win32":
+        click.echo("Global hotkeys are only supported on Windows.", err=True)
+        return
+
+    from .hotkey import (
+        capture_hotkey,
+        format_hotkey,
+        save_hotkey_preference,
+        HotkeyManager,
+    )
+
+    # Ensure manager exists
+    if ctx.hotkey_manager is None:
+        ctx.hotkey_manager = HotkeyManager()
+
+    # Show current hotkey if any
+    if ctx.hotkey_manager.is_registered:
+        click.echo(f"Current hotkey: {ctx.hotkey_manager.current_hotkey_display}")
+    else:
+        click.echo("No hotkey currently registered.")
+    click.echo()
+
+    # Enter capture mode
+    result = capture_hotkey()
+
+    if result is None:
+        click.echo("Hotkey setup cancelled.")
+        return
+
+    modifiers, vk_code = result
+    display = format_hotkey(modifiers, vk_code)
+
+    if ctx.hotkey_manager.register(modifiers, vk_code):
+        click.echo(f"Hotkey registered: {display}")
+        click.echo("Press this combination from any app to focus this terminal.")
+        save_hotkey_preference(modifiers, vk_code)
+    else:
+        click.echo(f"Failed to register hotkey: {display}", err=True)
+        click.echo("This combination may be in use by another application.")
+
+
+def do_clear_hotkey(ctx) -> None:
+    """Clear the registered global hotkey.
+
+    Args:
+        ctx: InteractiveContext with hotkey_manager field.
+    """
+    import sys
+
+    if sys.platform != "win32":
+        click.echo("Global hotkeys are only supported on Windows.", err=True)
+        return
+
+    from .hotkey import clear_hotkey_preference
+
+    if ctx.hotkey_manager and ctx.hotkey_manager.is_registered:
+        ctx.hotkey_manager.unregister()
+        click.echo("Hotkey unregistered.")
+    else:
+        click.echo("No hotkey is currently registered.")
+
+    clear_hotkey_preference()
+
+
 # Chart type aliases for list command
 CHART_TYPE_ALIASES = {
     "SID": "DP",
