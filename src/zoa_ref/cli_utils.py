@@ -335,6 +335,8 @@ Displays the sequence of fixes along a Victor, Jet, or RNAV airway.
 Fixes are shown in order (W to E or N to S). Navaids show full names.
 Optionally highlight one or more fixes in the list.
 
+If the argument isn't an airway ID, shows all airways through that fix.
+
 \b
 Examples:
   airway V23             - Show V23 fixes (NW to SE)
@@ -342,6 +344,8 @@ Examples:
   airway V23 SAC         - Highlight SAC in the list
   aw V23 SAC EUG LAX     - Highlight multiple fixes
   aw J60                 - Show J60 fixes
+  airway SUNOL           - Find all airways through SUNOL
+  aw FMG                 - Find all airways through FMG
 """,
     "descent": """
 descent - Calculate descent on a 3-degree glideslope

@@ -2,7 +2,7 @@
 
 import click
 
-from .airways import AirwaySearchResult
+from .airways import AirwaySearchResult, FixAirwaysResult
 from .atis import AtisInfo
 from .charts import ChartMatch
 from .cifp import CifpProcedureDetail, ProcedureLeg
@@ -409,6 +409,62 @@ def display_airway(result: AirwaySearchResult) -> None:
 
     for line in lines:
         click.echo(line)
+    click.echo()
+
+
+def display_fix_airways(result: FixAirwaysResult) -> None:
+    """Display all airways that contain a given fix."""
+    from .navaids import get_navaid_name
+
+    if not result.airways:
+        click.echo(f"\nNo airways found containing '{result.query}'.")
+        return
+
+    fix = result.query.upper()
+    click.echo()
+    click.echo(f"FIX {fix} - found on {len(result.airways)} airway(s)")
+    click.echo()
+
+    for airway in result.airways:
+        direction_str = f" ({airway.direction})" if airway.direction else ""
+
+        # Build a snippet of fixes around the queried fix
+        names = airway.fix_names
+        try:
+            idx = names.index(fix)
+        except ValueError:
+            continue
+
+        # Show up to 2 fixes before and after
+        start = max(0, idx - 2)
+        end = min(len(names), idx + 3)
+        snippet_parts = []
+        for i in range(start, end):
+            fix_obj = airway.fixes[i]
+            if fix_obj.is_navaid:
+                name = get_navaid_name(fix_obj.identifier)
+                label = (
+                    f"{fix_obj.identifier} ({name})"
+                    if name
+                    else fix_obj.identifier
+                )
+            else:
+                label = fix_obj.identifier
+
+            if fix_obj.identifier == fix:
+                label = click.style(f"[{label}]", fg="yellow", bold=True)
+
+            snippet_parts.append(label)
+
+        prefix = ".." if start > 0 else ""
+        suffix = ".." if end < len(names) else ""
+        snippet = prefix + "..".join(snippet_parts) + suffix
+
+        click.echo(
+            f"  {airway.identifier:<6}{direction_str:<14} "
+            f"{len(airway.fixes):>2} fixes   {snippet}"
+        )
+
     click.echo()
 
 

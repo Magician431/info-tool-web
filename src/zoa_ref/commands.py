@@ -1359,16 +1359,28 @@ def do_navaid_lookup(query: str) -> None:
 
 
 def do_airway_lookup(airway_id: str, highlights: list[str] | None = None) -> None:
-    """Look up an airway and display its fixes.
+    """Look up an airway, or find all airways containing a fix.
+
+    If the query matches an airway pattern (V/J/T/Q + digits), looks up that
+    airway. Otherwise treats the query as a fix and shows all airways through it.
 
     Args:
-        airway_id: Airway identifier (e.g., "V23", "J60", "T270")
+        airway_id: Airway identifier (e.g., "V23") or fix name (e.g., "SUNOL")
         highlights: Optional list of fix identifiers to highlight in the display
     """
     # Normalize dots to spaces (aviation systems use . as separator)
     airway_id = re.sub(r"\.+", " ", airway_id).strip()
     if highlights:
         highlights = [re.sub(r"\.+", " ", h).strip() for h in highlights]
+
+    # If query doesn't look like an airway ID, treat as a fix lookup
+    if not re.match(r"^[VJQT]\d+$", airway_id.upper()):
+        from .airways import find_airways_by_fix
+        from .display import display_fix_airways
+
+        result = find_airways_by_fix(airway_id)
+        display_fix_airways(result)
+        return
 
     # Ensure NASR data is available, showing errors if download fails
     if not ensure_nasr_data(["AWY"]):

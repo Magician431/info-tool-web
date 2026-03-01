@@ -50,6 +50,14 @@ class AirwaySearchResult:
     highlight_fixes: list[str] | None = None  # Fixes to highlight in display
 
 
+@dataclass
+class FixAirwaysResult:
+    """Result of a reverse lookup: all airways containing a given fix."""
+
+    query: str
+    airways: list[AirwayInfo]
+
+
 def parse_airway_record(line: str) -> tuple[str, str, int, bool] | None:
     """Parse a single CIFP airway record.
 
@@ -281,3 +289,52 @@ def search_airway(
     return AirwaySearchResult(
         query=query, airway=airway, highlight_fixes=highlight_fixes
     )
+
+
+def _airway_sort_key(airway_id: str) -> tuple[int, int]:
+    """Sort key for airway IDs: V first, then J, T, Q, others; numeric within."""
+    prefix_order = {"V": 0, "J": 1, "T": 2, "Q": 3}
+    prefix = airway_id[0]
+    number = int(airway_id[1:]) if airway_id[1:].isdigit() else 0
+    return (prefix_order.get(prefix, 9), number)
+
+
+def find_airways_by_fix(fix_id: str) -> FixAirwaysResult:
+    """Find all airways that contain a given fix.
+
+    Args:
+        fix_id: Fix/waypoint identifier (e.g., "SUNOL", "FMG")
+
+    Returns:
+        FixAirwaysResult with all airways containing the fix
+    """
+    cifp_path = ensure_cifp_data()
+    if not cifp_path:
+        return FixAirwaysResult(query=fix_id, airways=[])
+
+    fix_id = fix_id.upper().strip()
+
+    # Single pass: collect all airway IDs that contain this fix
+    matching_airway_ids: set[str] = set()
+
+    with open(cifp_path, "r", encoding="latin-1") as f:
+        for line in f:
+            if not line.startswith("SUSAER"):
+                continue
+
+            result = parse_airway_record(line)
+            if not result:
+                continue
+
+            airway_id, parsed_fix, _sequence, _is_navaid = result
+            if parsed_fix == fix_id:
+                matching_airway_ids.add(airway_id)
+
+    # Load full airway info for each match (reuses cached get_airway)
+    airways = []
+    for airway_id in sorted(matching_airway_ids, key=_airway_sort_key):
+        airway = get_airway(airway_id)
+        if airway:
+            airways.append(airway)
+
+    return FixAirwaysResult(query=fix_id, airways=airways)
