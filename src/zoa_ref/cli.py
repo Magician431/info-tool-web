@@ -28,6 +28,7 @@ from .commands import (
     do_descent_calc,
     do_fix_descent,
     do_mea_lookup,
+    do_metar_lookup,
     do_route_lookup,
     do_atis_lookup,
     do_chart_lookup,
@@ -351,6 +352,12 @@ def sop(query: tuple[str, ...], list_procs: bool, no_cache: bool):
 @click.option("--no-cache", is_flag=True, help="Bypass cache and fetch fresh data")
 def proc(query: tuple[str, ...], list_procs: bool, no_cache: bool):
     handle_sop_command(query or (), list_procs, no_cache)
+
+
+@main.command(help=COMMAND_HELP["metar"].strip())
+@click.argument("stations", nargs=-1, required=True)
+def metar(stations: tuple[str, ...]):
+    do_metar_lookup(list(stations))
 
 
 @main.command(help=COMMAND_HELP["atis"].strip())

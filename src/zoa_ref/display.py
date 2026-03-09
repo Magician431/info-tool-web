@@ -13,6 +13,7 @@ from .navaids import NavaidSearchResult
 from .positions import PositionSearchResult
 from .procedures import ProcedureMatch
 from .routes import RouteSearchResult
+from .metar import MetarInfo
 from .scratchpads import ScratchpadResult, ScratchpadFacility
 
 
@@ -222,6 +223,104 @@ def display_atis(atis_list: list[AtisInfo]) -> None:
         click.echo(f"ATIS - {atis.airport}")
         click.echo("=" * 80)
         click.echo(atis.raw_text)
+    click.echo()
+
+
+_FLIGHT_CAT_COLORS = {
+    "VFR": "green",
+    "MVFR": "blue",
+    "IFR": "red",
+    "LIFR": "magenta",
+}
+
+
+def _format_wind(metar: MetarInfo) -> str:
+    """Format wind string from METAR fields."""
+    if metar.wind_dir is None or metar.wind_speed is None:
+        return "Calm"
+    if metar.wind_speed == 0:
+        return "Calm"
+    gust = f"G{metar.wind_gust}" if metar.wind_gust else ""
+    return f"{metar.wind_dir:03d}{metar.wind_speed:02d}{gust}KT"
+
+
+def _format_altimeter(altim: float | None) -> str:
+    """Format altimeter in inHg from hPa value."""
+    if altim is None:
+        return ""
+    inhg = altim * 0.02953
+    return f"A{inhg:.2f}"
+
+
+def display_metar(metars: list[MetarInfo]) -> None:
+    """Display METAR information with flight category and highlights."""
+    for metar in metars:
+        click.echo()
+        click.echo("=" * 80)
+
+        # Station header with flight category color
+        cat = metar.flight_category or "UNK"
+        cat_color = _FLIGHT_CAT_COLORS.get(cat, "white")
+        header = f"METAR - {metar.station}"
+        if metar.name:
+            header += f" ({metar.name})"
+        click.echo(header)
+        click.echo("=" * 80)
+
+        # Raw METAR
+        click.echo(metar.raw)
+        click.echo()
+
+        # Flight category
+        click.echo("  Flight Category: ", nl=False)
+        click.secho(f"{cat}", fg=cat_color, bold=True)
+
+        # Wind (always highlighted)
+        wind_str = _format_wind(metar)
+        click.echo("  Wind:            ", nl=False)
+        click.secho(wind_str, fg="cyan", bold=True)
+
+        # Altimeter (always highlighted)
+        altim_str = _format_altimeter(metar.altimeter)
+        if altim_str:
+            click.echo("  Altimeter:       ", nl=False)
+            click.secho(altim_str, fg="cyan", bold=True)
+
+        # Visibility
+        if metar.visibility:
+            click.echo(f"  Visibility:      {metar.visibility} SM")
+
+        # Lowest cloud layer and ceiling
+        if metar.clouds:
+            # Lowest layer = first cloud entry with a base
+            lowest = None
+            ceiling = None
+            for cloud in metar.clouds:
+                cover = cloud.get("cover", "")
+                base = cloud.get("base")
+                if cover and base is not None:
+                    if lowest is None:
+                        lowest = (cover, base)
+                    # Ceiling = first BKN or OVC (or VV for obscuration)
+                    if ceiling is None and cover in ("BKN", "OVC", "VV"):
+                        ceiling = (cover, base)
+
+            if lowest:
+                click.echo(f"  Lowest Layer:    {lowest[0]} {lowest[1]:,}ft AGL")
+            if ceiling:
+                click.echo(f"  Ceiling:         {ceiling[0]} {ceiling[1]:,}ft AGL")
+            elif lowest:
+                click.echo("  Ceiling:         Unlimited")
+
+        # Temperature / Dewpoint
+        if metar.temp_c is not None:
+            dew = f" / Dewpoint: {metar.dewp_c:.1f}C" if metar.dewp_c is not None else ""
+            click.echo(f"  Temperature:     {metar.temp_c:.1f}C{dew}")
+
+        # Weather phenomena
+        if metar.wx_string:
+            click.echo(f"  Weather:         {metar.wx_string}")
+
     click.echo()
 
 

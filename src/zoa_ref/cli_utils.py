@@ -136,7 +136,8 @@ def clear_browser_preference() -> bool:
 
 # Interactive mode command help lines (ordered like website nav bar)
 INTERACTIVE_HELP_COMMANDS = [
-    "ATIS:",
+    "Weather:",
+    "  metar <station...>        - Fetch METAR (e.g., metar SFO OAK)",
     "  atis <airport>            - Look up ATIS (e.g., atis SFO)",
     "Routes:",
     "  route <dep> <arr>         - Look up routes (e.g., route SFO LAX)",
@@ -236,6 +237,19 @@ Examples:
   route SFO LAX -a -f    - Show everything
   route OAK SAN -n 10    - Show top 10 real world routes
   route SFO LAX --browser - Open routes page in browser
+""",
+    "metar": """
+metar - Fetch current METAR weather observation
+
+Fetches the latest METAR from aviationweather.gov for one or more
+stations. Shows flight category (VFR/MVFR/IFR/LIFR), wind, and
+altimeter highlighted. Accepts ICAO or FAA identifiers (SFO -> KSFO).
+
+\b
+Examples:
+  metar SFO              - METAR for San Francisco
+  metar KSFO             - Same (ICAO format)
+  metar SFO OAK RNO      - Multiple stations at once
 """,
     "atis": """
 atis - Look up current ATIS for an airport

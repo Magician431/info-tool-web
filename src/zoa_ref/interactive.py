@@ -20,6 +20,7 @@ from .commands import (
     do_descent_calc,
     do_fix_descent,
     do_mea_lookup,
+    do_metar_lookup,
     do_route_lookup,
     do_atis_lookup,
     do_chart_lookup,
@@ -107,6 +108,18 @@ def _handle_route_interactive(args: str, ctx: InteractiveContext) -> None:
         top_n=top_n,
         headless_session=ctx.headless_session,
     )
+
+
+def _handle_metar_interactive(args: str) -> None:
+    """Handle 'metar <station...>' command in interactive mode."""
+    parsed = parse_interactive_args(args)
+    if parsed.show_help or not parsed.positional:
+        from .cli import main
+
+        print_command_help("metar", main)
+        return
+
+    do_metar_lookup(parsed.positional)
 
 
 def _handle_atis_interactive(args: str, ctx: InteractiveContext) -> None:
@@ -482,6 +495,7 @@ INTERACTIVE_COMMANDS: dict[str, tuple] = {
     "list ": (_handle_list_interactive, 5, False),
     "charts ": (_handle_charts_interactive, 7, True),
     "route ": (_handle_route_interactive, 6, True),
+    "metar ": (_handle_metar_interactive, 6, False),
     "atis": (_handle_atis_interactive, 4, True),
     "sop ": (_handle_sop_interactive, 4, True),
     "proc ": (_handle_sop_interactive, 5, True),

@@ -42,6 +42,7 @@ from .display import (
     display_descent,
     display_fix_descent,
     display_mea,
+    display_metar,
     display_navaids,
     display_procedure_matches,
     display_positions,
@@ -929,6 +930,35 @@ def do_atis_lookup(
     finally:
         if own_session:
             session.stop()
+
+
+def do_metar_lookup(stations: list[str]) -> None:
+    """Shared METAR lookup.
+
+    Args:
+        stations: List of airport/station identifiers.
+    """
+    from .metar import fetch_metar, fetch_metars
+
+    if not stations:
+        click.echo("Error: Please specify one or more station identifiers", err=True)
+        return
+
+    try:
+        if len(stations) == 1:
+            result = fetch_metar(stations[0])
+            if result:
+                display_metar([result])
+            else:
+                click.echo(f"No METAR found for {stations[0].upper()}.", err=True)
+        else:
+            results = fetch_metars(stations)
+            if results:
+                display_metar(results)
+            else:
+                click.echo("No METARs found for the specified stations.", err=True)
+    except RuntimeError as exc:
+        click.echo(str(exc), err=True)
 
 
 def _handle_category_lookup(
