@@ -669,8 +669,8 @@ def strip_pdf_metadata(pdf_data: bytes) -> bytes:
         reader = PdfReader(io.BytesIO(pdf_data))
         writer = PdfWriter()
 
-        for page in reader.pages:
-            writer.add_page(page)
+        # Clone entire document (preserves outline/bookmarks)
+        writer.clone_reader_document_root(reader)
 
         # Clear metadata by setting empty values
         writer.add_metadata({})

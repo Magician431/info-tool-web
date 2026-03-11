@@ -55,7 +55,12 @@ class ProcedureInfo:
     @property
     def uuid(self) -> str:
         """Extract UUID from PDF URL."""
+        # Try zoapdfs/<uuid>.pdf format
         match = re.search(r"zoapdfs/([^/]+)\.pdf", self.pdf_url)
+        if match:
+            return match.group(1)
+        # Try controllers/file/<uuid> format
+        match = re.search(r"controllers/file/([^/?]+)", self.pdf_url)
         return match.group(1) if match else ""
 
     @property
@@ -187,6 +192,13 @@ class ProcedureQuery:
                 if (
                     first_upper in airport_codes or first_upper in proc_keywords
                 ) and is_section_start:
+                    break
+                # If first part maps to a known SOP (e.g., NCT -> NORCAL TRACON),
+                # treat remaining non-keyword parts as section/search terms
+                if (
+                    first_upper in AIRPORT_ALIASES
+                    and part_upper not in proc_keywords
+                ):
                     break
                 # If first part is NOT an airport code or proc keyword (e.g., "Class D"),
                 # then this part is likely a section term (even if it's an airport code)
@@ -584,6 +596,12 @@ def find_procedure_by_name(
     search_terms = [search_term]
     if search_term in PROCEDURE_ALIASES:
         search_terms.extend(PROCEDURE_ALIASES[search_term])
+    # For multi-word queries, also expand aliases for individual tokens
+    for token in re.findall(r"[A-Z0-9]+", search_term):
+        if token != search_term and token in PROCEDURE_ALIASES:
+            for alias in PROCEDURE_ALIASES[token]:
+                if alias not in search_terms:
+                    search_terms.append(alias)
 
     # Tokenize query for all-terms matching
     query_tokens = set(re.findall(r"[A-Z0-9]+", search_term))
@@ -670,7 +688,9 @@ def _download_pdf(url: str, timeout: int = 30, use_cache: bool = True) -> bytes 
     from zoa_ref import cache
 
     # Extract UUID from URL for cache key
-    uuid_match = re.search(r"zoapdfs/([^/]+)\.pdf", url)
+    uuid_match = re.search(r"zoapdfs/([^/]+)\.pdf", url) or re.search(
+        r"controllers/file/([^/?]+)", url
+    )
     uuid = uuid_match.group(1) if uuid_match else None
 
     # Try cache first
