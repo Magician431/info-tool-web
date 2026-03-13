@@ -160,6 +160,7 @@ INTERACTIVE_HELP_COMMANDS = [
     "Procedures:",
     "  sop|proc <query>          - Look up SOP/procedure (e.g., sop OAK)",
     "  cifp <apt> <procedure>    - Show procedure waypoints/restrictions",
+    "  uses <fix> [apt] [type]   - Find procedures using a fix (e.g., uses MYJAW)",
     "Scratchpads:",
     "  scratchpad|scratch <fac>  - Look up scratchpads (e.g., scratch OAK)",
     "External Tools:",
@@ -522,6 +523,27 @@ Examples:
 When an altitude is specified, only segments exceeding that
 altitude are listed. If all segments are at or below the
 specified altitude, the route is marked as SAFE.
+""",
+    "uses": """
+uses - Find which procedures use a fix/waypoint
+
+Searches all airports in the CIFP data for SIDs, STARs, and approaches
+that contain the specified fix or waypoint. Optionally filter by airport
+and/or procedure type.
+
+Type filters: SID, STAR, APP (or IAP)
+Airport filters: 3-letter (BUR) or 4-letter ICAO (KAPP) codes
+
+\b
+Examples:
+  uses MYJAW              - Find all procedures containing MYJAW
+  uses KLOCK              - Find all procedures containing KLOCK
+  uses FMG                - Find all procedures containing FMG
+  uses COREZ BUR          - Only procedures at BUR
+  uses COREZ SID          - Only SIDs
+  uses COREZ BUR SID      - Only SIDs at BUR
+  uses FMG STAR           - Only STARs containing FMG
+  uses FIX KAPP           - Airport APP (use ICAO to disambiguate)
 """,
     "cifp": """
 cifp - Display procedure waypoints with altitude/speed restrictions

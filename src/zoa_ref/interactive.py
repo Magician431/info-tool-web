@@ -34,6 +34,7 @@ from .commands import (
     do_sethotkey,
     do_clear_hotkey,
     do_cifp_lookup,
+    do_uses_lookup,
 )
 from .descent import is_fix_identifier
 from .icao import CodesPage
@@ -489,6 +490,21 @@ def _handle_cifp_interactive(args: str) -> None:
     do_cifp_lookup(airport, procedure)
 
 
+def _handle_uses_interactive(args: str) -> None:
+    """Handle 'uses <fix> [airport] [type]' command in interactive mode."""
+    parsed = parse_interactive_args(args)
+    if parsed.show_help or not parsed.positional:
+        from .cli import main
+
+        print_command_help("uses", main)
+        return
+
+    from .cifp import parse_uses_filters
+
+    airport_filter, type_filter = parse_uses_filters(parsed.positional[1:])
+    do_uses_lookup(parsed.positional[0], airport_filter=airport_filter, type_filter=type_filter)
+
+
 # Command registry: maps command prefix to (handler, prefix_length, needs_context)
 # needs_context indicates whether the handler requires InteractiveContext
 INTERACTIVE_COMMANDS: dict[str, tuple] = {
@@ -514,6 +530,7 @@ INTERACTIVE_COMMANDS: dict[str, tuple] = {
     "apps ": (_handle_approaches_interactive, 5, False),
     "mea ": (_handle_mea_interactive, 4, False),
     "cifp ": (_handle_cifp_interactive, 5, False),
+    "uses ": (_handle_uses_interactive, 5, False),
     "position ": (_handle_position_interactive, 9, True),
     "pos ": (_handle_position_interactive, 4, True),
     "scratchpad ": (_handle_scratchpad_interactive, 11, True),

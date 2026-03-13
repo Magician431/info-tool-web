@@ -1832,6 +1832,22 @@ def do_mea_lookup(route: str, altitude: int | None = None) -> None:
     display_mea(result)
 
 
+def do_uses_lookup(
+    fix_name: str,
+    airport_filter: str | None = None,
+    type_filter: str | None = None,
+) -> None:
+    """Find all procedures that contain a given fix/waypoint.
+
+    Scans the CIFP data across all airports, optionally filtered.
+    """
+    from .cifp import find_fix_uses
+    from .display import display_fix_uses
+
+    result = find_fix_uses(fix_name, airport_filter=airport_filter, type_filter=type_filter)
+    display_fix_uses(result)
+
+
 def do_cifp_lookup(airport: str, procedure_name: str) -> None:
     """Look up procedure details from CIFP data.
 

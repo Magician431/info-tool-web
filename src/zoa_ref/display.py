@@ -5,7 +5,7 @@ import click
 from .airways import AirwaySearchResult, FixAirwaysResult
 from .atis import AtisInfo
 from .charts import ChartMatch
-from .cifp import CifpProcedureDetail, ProcedureLeg
+from .cifp import CifpProcedureDetail, FixUsesResult, ProcedureLeg
 from .descent import DescentResult, DescentMode, FixDescentResult
 from .icao import AirlineSearchResult, AirportSearchResult, AircraftSearchResult
 from .mea import MeaResult
@@ -1019,3 +1019,43 @@ def _display_approach_horizontal(proc: CifpProcedureDetail, common_fixes: list[P
         click.secho("  FINAL APPROACH:", fg="yellow", bold=True)
         click.echo()
         _draw_horizontal_route(common_fixes, "    ")
+
+
+def display_fix_uses(result: FixUsesResult) -> None:
+    """Display all procedures that use a given fix."""
+    if not result.procedures:
+        click.echo(f"\nNo procedures found containing '{result.fix}'.")
+        return
+
+    click.echo()
+    click.echo(f"FIX {result.fix} - found on {len(result.procedures)} procedure(s)")
+    click.echo()
+
+    # Group by airport
+    airports: dict[str, list] = {}
+    for proc in result.procedures:
+        if proc.airport not in airports:
+            airports[proc.airport] = []
+        airports[proc.airport].append(proc)
+
+    type_colors = {"STAR": "cyan", "SID": "green", "APPROACH": "yellow"}
+
+    for airport, procs in airports.items():
+        click.secho(f"  {airport}:", bold=True)
+        for proc in procs:
+            color = type_colors.get(proc.procedure_type, "white")
+            label = f"{proc.procedure_type:<8}"
+
+            # Build procedure name
+            if proc.procedure_type == "APPROACH":
+                name = f"{proc.approach_type}"
+                if proc.runway:
+                    name += f" RWY {proc.runway}"
+                name += f" ({proc.procedure_id})"
+            else:
+                name = proc.procedure_id
+
+            click.echo(f"    ", nl=False)
+            click.secho(label, fg=color, nl=False)
+            click.echo(f" {name}")
+        click.echo()

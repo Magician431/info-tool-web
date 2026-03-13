@@ -40,6 +40,7 @@ from .commands import (
     do_approaches_lookup,
     do_setbrowser,
     do_cifp_lookup,
+    do_uses_lookup,
 )
 from .descent import is_fix_identifier
 from .interactive import interactive_mode
@@ -333,6 +334,16 @@ def mea(route: tuple[str, ...], altitude: int | None):
 @click.argument("procedure", nargs=-1, required=True)
 def cifp(airport: str, procedure: tuple[str, ...]):
     do_cifp_lookup(airport, " ".join(procedure))
+
+
+@main.command(help=COMMAND_HELP["uses"].strip())
+@click.argument("fix", required=True)
+@click.argument("filters", nargs=-1)
+def uses(fix: str, filters: tuple[str, ...]):
+    from .cifp import parse_uses_filters
+
+    airport_filter, type_filter = parse_uses_filters(list(filters))
+    do_uses_lookup(fix, airport_filter=airport_filter, type_filter=type_filter)
 
 
 # --- Procedure/SOP Commands ---

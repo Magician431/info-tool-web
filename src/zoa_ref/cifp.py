@@ -132,6 +132,25 @@ class CifpDP:
     transitions: list[str]  # Exit transition names (e.g., "MOD", "SAC")
 
 
+@dataclass
+class FixProcedureUse:
+    """A procedure that contains a given fix."""
+
+    airport: str  # e.g., "OAK" (without K prefix)
+    procedure_id: str  # Base ID e.g., "EMZOH4", "CNDEL5", "I28R"
+    procedure_type: str  # "SID", "STAR", or "APPROACH"
+    approach_type: str  # Human-readable approach type (e.g., "ILS"), empty for SID/STAR
+    runway: str  # Runway (e.g., "28R"), empty if N/A
+
+
+@dataclass
+class FixUsesResult:
+    """Result of searching for all procedures that use a fix."""
+
+    fix: str  # The queried fix name
+    procedures: list[FixProcedureUse]
+
+
 # --- Enhanced Data Classes with Altitude/Speed Restrictions ---
 
 
@@ -1529,3 +1548,156 @@ def get_procedure_detail(
         transitions=transitions,
         runway_transitions=runway_transitions,
     )
+
+
+_TYPE_KEYWORDS: dict[str, str] = {
+    "SID": "SID",
+    "STAR": "STAR",
+    "APP": "APPROACH",
+    "IAP": "APPROACH",
+}
+
+
+def find_fix_uses(
+    fix_name: str,
+    airport_filter: str | None = None,
+    type_filter: str | None = None,
+) -> FixUsesResult:
+    """Find all procedures (SIDs, STARs, approaches) that contain a fix.
+
+    Scans the entire CIFP file in a single pass. Deduplicates by
+    (airport, base_procedure_id, subsection) so each procedure appears once.
+
+    Args:
+        fix_name: Fix/waypoint identifier (e.g., "MYJAW", "KLOCK")
+        airport_filter: If set, only return procedures at this airport.
+        type_filter: If set, only return this procedure type
+            ("SID", "STAR", or "APPROACH").
+
+    Returns:
+        FixUsesResult with all matching procedures.
+    """
+    cifp_path = ensure_cifp_data()
+    if not cifp_path:
+        return FixUsesResult(fix=fix_name, procedures=[])
+
+    fix_name = fix_name.upper().strip()
+
+    # Build airport search prefix if filtering by airport
+    airport_prefix: str | None = None
+    if airport_filter:
+        apt = airport_filter.upper().lstrip("K")
+        airport_prefix = f"SUSAP K{apt}"
+
+    # Map type_filter to allowed subsection codes
+    allowed_subsections: set[str] | None = None
+    if type_filter:
+        subsection_for_type = {"SID": {"D"}, "STAR": {"E"}, "APPROACH": {"F"}}
+        allowed_subsections = subsection_for_type.get(type_filter)
+
+    # Track unique (airport, base_proc_id, subsection) to deduplicate
+    seen: set[tuple[str, str, str]] = set()
+    procedures: list[FixProcedureUse] = []
+
+    subsection_type_map = {"D": "SID", "E": "STAR", "F": "APPROACH"}
+
+    with open(cifp_path, "r", encoding="latin-1") as f:
+        for line in f:
+            if len(line) < 35:
+                continue
+            if not line.startswith("SUSAP"):
+                continue
+
+            # Airport filter: skip lines not matching the target airport
+            if airport_prefix and not line.startswith(airport_prefix):
+                continue
+
+            subsection = line[12] if len(line) > 12 else ""
+            if subsection not in ("D", "E", "F"):
+                continue
+
+            # Type filter: skip non-matching subsections
+            if allowed_subsections and subsection not in allowed_subsections:
+                continue
+
+            # Check if this line's fix matches (position 30-34)
+            line_fix = line[29:34].strip()
+            if line_fix != fix_name:
+                continue
+
+            # Extract airport (position 7-10, strip K prefix)
+            airport = line[6:10].strip().lstrip("K")
+
+            # Extract procedure ID and normalize to base ID
+            proc_id_raw = line[13:19].strip()
+            if not proc_id_raw:
+                continue
+
+            if subsection in ("D", "E"):
+                # SID/STAR: normalize "CNDEL54" -> "CNDEL5"
+                match = re.match(r"^([A-Z]+\d)", proc_id_raw)
+                base_id = match.group(1) if match else proc_id_raw
+            else:
+                # Approach: keep full ID (e.g., "I28R", "H17LZ")
+                base_id = proc_id_raw
+
+            key = (airport, base_id, subsection)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            proc_type = subsection_type_map[subsection]
+            approach_type = ""
+            runway = ""
+            if subsection == "F":
+                approach_type = _parse_approach_type(base_id)
+                runway = _parse_runway_from_approach_id(base_id) or ""
+
+            procedures.append(
+                FixProcedureUse(
+                    airport=airport,
+                    procedure_id=base_id,
+                    procedure_type=proc_type,
+                    approach_type=approach_type,
+                    runway=runway,
+                )
+            )
+
+    # Sort by airport, then type (STAR, SID, APPROACH), then ID
+    type_order = {"STAR": 0, "SID": 1, "APPROACH": 2}
+    procedures.sort(
+        key=lambda p: (p.airport, type_order.get(p.procedure_type, 9), p.procedure_id)
+    )
+
+    return FixUsesResult(fix=fix_name, procedures=procedures)
+
+
+def parse_uses_filters(
+    args: list[str],
+) -> tuple[str | None, str | None]:
+    """Parse optional airport and type filters from extra arguments.
+
+    Recognizes type keywords (SID, STAR, APP, IAP) and treats anything
+    else as an airport filter. A 4-letter ICAO code starting with K
+    (e.g., "KAPP") is always treated as an airport, even if the 3-letter
+    suffix matches a type keyword.
+
+    Args:
+        args: Extra arguments after the fix name.
+
+    Returns:
+        Tuple of (airport_filter, type_filter). Either may be None.
+    """
+    airport_filter: str | None = None
+    type_filter: str | None = None
+
+    for arg in args:
+        upper = arg.upper()
+        # 4-letter K-prefixed codes are always airports (e.g., KAPP, KSFO)
+        is_icao = len(upper) == 4 and upper.startswith("K")
+        if upper in _TYPE_KEYWORDS and not is_icao:
+            type_filter = _TYPE_KEYWORDS[upper]
+        else:
+            airport_filter = upper
+
+    return airport_filter, type_filter
