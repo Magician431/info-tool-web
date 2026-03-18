@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("ZoaReference")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+a32147791aa87689e9a7949d7392a13b8a489eb1")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+69d13a0c122d08f600e9bd19bf40a75a0e77d05f")]
 [assembly: System.Reflection.AssemblyProductAttribute("ZoaReference")]
 [assembly: System.Reflection.AssemblyTitleAttribute("ZoaReference")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
