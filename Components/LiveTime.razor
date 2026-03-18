@@ -1,0 +1,42 @@
+﻿@rendermode InteractiveServer
+@implements IAsyncDisposable
+@inject IJSRuntime Js
+
+
+<div class="font-mono bg-orange-800 text-gray-100 p-3" @ref="_wrapper">
+    <span @ref="_hours">@_initialTime.ToString("HH")</span><span>:</span><span @ref="_minutes">@_initialTime.ToString("mm")</span><span>:</span><span @ref="_seconds">@_initialTime.ToString("ss")</span>
+</div>
+
+@code {
+    private ElementReference _wrapper;
+    private ElementReference _hours;
+    private ElementReference _minutes;
+    private ElementReference _seconds;
+    private IJSObjectReference? _module;
+    private DateTime _initialTime = DateTime.Now;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _module = await Js.InvokeAsync<IJSObjectReference>("import", "./scripts/livetime.js");
+            await _module.InvokeVoidAsync("startTimeUpdate", _hours, _minutes, _seconds);
+            //await _module.InvokeVoidAsync("reveal", _wrapper);
+        }
+    }
+    
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        try
+        {
+            if (_module is not null)
+            {
+                await _module.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // Do nothing here
+        }
+    }
+}

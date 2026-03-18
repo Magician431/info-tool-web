@@ -1,0 +1,96 @@
+﻿@page "/positions"
+@using ZoaReference.Features.VnasData.Models
+@using ZoaReference.Features.VnasData.Services
+@rendermode InteractiveServer
+
+@inject CachedVnasDataService VnasData
+@inject IJSRuntime Js
+
+@using Microsoft.Extensions.Options
+@inject IOptionsMonitor<AppSettings> Settings
+
+<PageTitle>Positions - @Settings.CurrentValue.ARTCC Reference</PageTitle>
+
+<input @ref="@_input"
+       class="bg-transparent border border-gray-500 focus:outline-none focus:bg-gray-700 p-0.5  mb-2 ml-1 w-40"
+       type="text" @bind="_filterText" @bind:event="oninput" placeholder="Search"/>
+<div class="text-s">
+    <QuickGrid Items="@FilteredPositions">
+        <PropertyColumn Property="@(p => p.Name)" Sortable="true"/>
+        <PropertyColumn Property="@(p => p.Tcp)" Title="STARS TCP" Sortable="true"/>
+        <PropertyColumn Property="@(p => p.Callsign)" Sortable="true"/>
+        <PropertyColumn Property="@(p => p.RadioName)" Title="Radio Name" Sortable="true"/>
+        <TemplateColumn Title="Frequency" SortBy="@_sortByFreq">
+            @(FreqToString(context.Frequency))
+        </TemplateColumn>
+    </QuickGrid>
+</div>
+
+@code {
+    private ICollection<PositionExtended> _positions = new List<PositionExtended>();
+    private IQueryable<PositionExtended> PositionsQueryable => _positions.AsQueryable();
+
+    private IQueryable<PositionExtended> FilteredPositions
+    {
+        get { return PositionsQueryable.Where(p => ContainsFilterString(p, _filterText)); }
+    }
+
+    private string _filterText = "";
+
+    private readonly GridSort<PositionExtended> _sortByFreq = GridSort<PositionExtended>
+        .ByAscending(p => p.Frequency);
+
+    private ElementReference _input;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var artcc = Settings.CurrentValue.ARTCC;
+        var fetchedFacilities = await VnasData.GetArtccFacilities(artcc);
+        
+        var tcps = fetchedFacilities
+            .Where(f => f.Facility.StarsConfiguration is not null)
+            .SelectMany(f => f.Facility.StarsConfiguration!.Tcps)
+            .ToDictionary(t => t.Id, t => $"{t.Subset}{t.SectorId}");
+
+        List<PositionExtended> positions = [];
+        foreach (var facility in fetchedFacilities)
+        {
+            foreach (var position in facility.Facility.Positions)
+            {
+                if (position.StarsConfiguration is not null)
+                {
+                    tcps.TryGetValue(position.StarsConfiguration.TcpId, out var tcpString);
+                    positions.Add(new PositionExtended(position, tcpString));
+                }
+                else
+                {
+                    positions.Add(new PositionExtended(position, ""));
+                }
+            }
+        }
+
+        _positions = positions;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await Js.InvokeVoidAsync("SetFocusToElement", _input);
+        }
+    }
+
+    private static string FreqToString(int freq)
+    {
+        var str = freq.ToString();
+        return $"{str[..3]}.{str[3..6]}";
+    }
+
+    private static bool ContainsFilterString(PositionExtended p, string s) =>
+        string.IsNullOrEmpty(s)
+        || p.Name.Contains(s, StringComparison.OrdinalIgnoreCase)
+        || p.Callsign.Contains(s, StringComparison.OrdinalIgnoreCase)
+        || p.RadioName.Contains(s, StringComparison.OrdinalIgnoreCase)
+        || FreqToString(p.Frequency).Contains(s, StringComparison.OrdinalIgnoreCase);
+
+}

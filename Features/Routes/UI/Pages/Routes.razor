@@ -1,0 +1,291 @@
+@page "/routes"
+@using ZoaReference.Features.IcaoReference.Repositories
+@using ZoaReference.Features.Routes.Models
+@using ZoaReference.Features.Routes.Repositories
+@using ZoaReference.Features.Routes.Services
+@using ZoaReference.Features.Routes.UI.Components
+@rendermode InteractiveServer
+
+@inject CskoRouteService CskoRouteService
+@inject FlightAwareRouteService FlightAware
+@inject AliasRouteRuleRepository AliasRouteRules
+@inject LoaRuleRepository LoaRules
+@inject AirportRepository Airports
+@inject IJSRuntime Js
+@inject NavigationManager NavigationManager
+
+@using Microsoft.Extensions.Options
+@inject IOptions<AppSettings> Settings
+
+<PageTitle>Routes - @Settings.Value.ARTCC Reference</PageTitle>
+
+
+<div class="flex flex-col text-s gap-8">
+    <div>
+        <EditForm Model="@_routeForm" OnValidSubmit="@RouteSubmit">
+            <DataAnnotationsValidator/>
+            <InputText @bind-Value="_routeForm.DepartureId" id="departureInput"
+                       class="uppercase bg-transparent border border-gray-500 focus:outline-none focus:bg-gray-700 p-0.5 mb-2 ml-1 w-40"
+                       placeholder="Departure ID"/>
+            <InputText @bind-Value="_routeForm.ArrivalId"
+                       class="uppercase bg-transparent border border-gray-500 focus:outline-none focus:bg-gray-700 p-0.5 mb-2 ml-1 w-40"
+                       placeholder="Arrival ID"/>
+            <button type="submit" class="rounded bg-orange-900 transition-colors hover:bg-orange-800 p-1 ml-3">Search
+                Routes
+            </button>
+            <ValidationMessage For="() => _routeForm.DepartureId"/>
+            <ValidationMessage For="() => _routeForm.ArrivalId"/>
+        </EditForm>
+    </div>
+
+    @if (_displayedAliasRouteRules.Any())
+    {
+        <div class="border border-slate-600 p-2">
+            <h1 class="text-2xl">TEC/AAR/ADR Routes</h1>
+            <QuickGrid Items="@_displayedAliasRouteRules.AsQueryable()">
+                <TemplateColumn Title="Dep Runway">
+                    @if (context.DepartureRunway is null)
+                    {
+                        <span class="text-gray-500">Any</span>
+                    }
+                    else
+                    {
+                        <span>@context.DepartureRunway</span>
+                    }
+                </TemplateColumn>
+                <TemplateColumn Title="Arr Runway">
+                    @if (context.ArrivalRunway is null)
+                    {
+                        <span class="text-gray-500">Any</span>
+                    }
+                    else
+                    {
+                        <span>@context.ArrivalRunway</span>
+                    }
+                </TemplateColumn>
+                <TemplateColumn Title="Types">
+                    <FormattedAircraftType AircraftTypes="@context.AllowedAircraftTypes"/>
+                </TemplateColumn>
+                <PropertyColumn Property="@(p => p.Route)"/>
+            </QuickGrid>
+        </div>
+    }
+
+    @if (_displayedLoaRules.Any())
+    {
+        <div class="border border-slate-600 p-2">
+            <h1 class="text-2xl">LOA Rules</h1>
+            <QuickGrid Items="@_displayedLoaRules.AsQueryable()">
+                <PropertyColumn Property="@(p => p.Route)" Sortable="true"/>
+                <TemplateColumn Title="RNAV?">
+                    @if (context.IsRnavRequired)
+                    {
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5">
+                            <path fill-rule="evenodd"
+                                  d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z"
+                                  clip-rule="evenodd"/>
+                        </svg>
+                    }
+                </TemplateColumn>
+                <PropertyColumn Property="@(p => p.Notes)" Sortable="true"/>
+            </QuickGrid>
+        </div>
+    }
+
+    @if (_showRwRoutesLoading || _displayedRwRoutes is not null)
+    {
+        <div class="border border-slate-600 p-2">
+            <h1 class="text-2xl">Real World Routes</h1>
+            @if (_showRwRoutesLoading)
+            {
+                <Spinner/>
+            }
+            else if (_displayedRwRoutes is not null)
+            {
+                <QuickGrid Items="@_displayedRwRoutes.FlightRouteSummaries.AsQueryable()">
+                    <PropertyColumn Property="@(p => p.RouteFrequency)" Title="Freq"/>
+                    <PropertyColumn Property="@(p => p.Route)" Title="Route"/>
+                    <TemplateColumn Title="Altitude">
+                        @switch (context.MinAltitude)
+                        {
+                            case null when context.MaxAltitude is null:
+                                <span></span>
+                                break;
+                            case null:
+                                <span>@ToFlightLevel(context.MaxAltitude)</span>
+                                break;
+                            default:
+                            {
+                                if (context.MaxAltitude is null)
+                                {
+                                    <span>@ToFlightLevel(context.MinAltitude)</span>
+                                }
+                                else
+                                {
+                                    <span>@ToFlightLevel(context.MinAltitude) - @ToFlightLevel(context.MaxAltitude)</span>
+                                }
+
+                                break;
+                            }
+                        }
+                    </TemplateColumn>
+                </QuickGrid>
+
+                <QuickGrid Items="@_displayedRwRoutes.MostRecent.AsQueryable()">
+                    <PropertyColumn Property="@(p => p.Callsign)"/>
+                    <PropertyColumn Property="@(p => p.AircraftIcaoId)" Title="Type"/>
+                    <PropertyColumn Property="@(p => p.Route)"/>
+                    <TemplateColumn Title="Altitude">
+                        <span>@ToFlightLevel(context.Altitude)</span>
+                    </TemplateColumn>
+                </QuickGrid>
+            }
+            else if (_isRwRoutesError)
+            {
+                <p>Error loading real world routes. Try visiting <a target="_blank"
+                                                                    href="@FlightAware.MakeUrl(_routeForm.DepartureId, _routeForm.ArrivalId)">FlightAware</a>
+                    directly.</p>
+            }
+        </div>
+    }
+
+    @* @if (!string.IsNullOrEmpty(_routeForm.DepartureId) && !string.IsNullOrEmpty(_routeForm.ArrivalId)) *@
+    @* { *@
+    @*     <div class="border border-slate-600 p-2"> *@
+    @*         <h1 class="text-2xl">Real World Routes</h1> *@
+    @*         <p>View on <a target="_blank" href="@FlightAware.MakeUrl(_routeForm.DepartureId, _routeForm.ArrivalId)" *@
+    @*                       class="underline">FlightAware</a>.</p> *@
+    @*     </div> *@
+    @* } *@
+
+</div>
+
+@code {
+    private readonly RouteForm _routeForm = new();
+
+    [SupplyParameterFromQuery(Name = "dep")]
+    public string? QueryDeparture { get; set; }
+
+    [SupplyParameterFromQuery(Name = "dest")]
+    public string? QueryDestination { get; set; }
+
+    private AirportPairRouteSummary? _displayedRwRoutes;
+    private IEnumerable<AliasRouteRule> _displayedAliasRouteRules = Enumerable.Empty<AliasRouteRule>();
+    private IEnumerable<LoaRule> _displayedLoaRules = Enumerable.Empty<LoaRule>();
+    private bool _showRwRoutesLoading;
+    private bool _isRwRoutesError;
+    private IJSObjectReference? _storage;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _storage = await Js.InvokeAsync<IJSObjectReference>("import", "./scripts/storage.js");
+            if (!string.IsNullOrWhiteSpace(QueryDeparture) && !string.IsNullOrWhiteSpace(QueryDestination))
+            {
+                _routeForm.DepartureId = QueryDeparture;
+                _routeForm.ArrivalId = QueryDestination;
+                await RouteSubmit();
+            }
+            else
+            {
+                var savedState = await _storage.InvokeAsync<SavedAirportPairRoutes?>("get", SavedAirportPairRoutesStorageKey);
+                if (savedState is not null)
+                {
+                    _routeForm.DepartureId = savedState.Value.DepartureId;
+                    _routeForm.ArrivalId = savedState.Value.ArrivalId;
+                    await RouteSubmit();
+                }
+            }
+
+            StateHasChanged();
+            await Js.InvokeVoidAsync("SetFocusToId", "departureInput");
+        }
+    }
+
+    private class RouteForm
+    {
+        [Required]
+        [StringLength(4, ErrorMessage = "ID cannot exceed 4 characters.")]
+        public string DepartureId { get; set; } = "";
+
+        [Required]
+        [StringLength(4, ErrorMessage = "ID cannot exceed 4 characters.")]
+        public string ArrivalId { get; set; } = "";
+    }
+
+    private async Task RouteSubmit()
+    {
+        var departureIcao = IdToIcaoId(_routeForm.DepartureId);
+        var departureLocal = IdToLocalId(_routeForm.DepartureId);
+
+        var arrivalIcao = IdToIcaoId(_routeForm.ArrivalId);
+        var arrivalLocal = IdToLocalId(_routeForm.ArrivalId);
+
+        // Don't need null check here because Equals can take null
+        _displayedAliasRouteRules = AliasRouteRules.GetAllRules()
+            .Where(r => r.DepartureAirport.Equals(departureLocal, StringComparison.OrdinalIgnoreCase)
+                        && r.ArrivalAirport.Equals(arrivalLocal, StringComparison.OrdinalIgnoreCase));
+
+        if (departureIcao is not null && arrivalIcao is not null)
+        {
+            _displayedLoaRules = LoaRules.GetAllRules()
+                .Where(r => r.DepartureAirportRegex.IsMatch(departureIcao)
+                            && r.ArrivalAirportRegex.IsMatch(arrivalIcao));
+
+            _showRwRoutesLoading = true;
+            try
+            {
+                _displayedRwRoutes = await CskoRouteService.FetchRoutesAsync(departureIcao, arrivalIcao);
+                _isRwRoutesError = false;
+            }
+            catch (Exception)
+            {
+                _displayedRwRoutes = null;
+                _isRwRoutesError = true;
+            }
+
+            _showRwRoutesLoading = false;
+            if (_storage is not null)
+            {
+                await _storage.InvokeVoidAsync("set", SavedAirportPairRoutesStorageKey, new SavedAirportPairRoutes(_routeForm.DepartureId, _routeForm.ArrivalId));
+            }
+            NavigationManager.NavigateTo(
+                NavigationManager.GetUriWithQueryParameters(new Dictionary<string, object?> { ["dep"] = _routeForm.DepartureId, ["dest"] = _routeForm.ArrivalId }),
+                replace: true);
+        }
+    }
+
+    private string? IdToIcaoId(string id)
+    {
+        if (id.Length == 4)
+        {
+            return id;
+        }
+
+        var airport = Airports.AllAirports.FirstOrDefault(a => a.LocalId.Equals(id, StringComparison.OrdinalIgnoreCase));
+        return airport?.IcaoId;
+    }
+
+    private string? IdToLocalId(string id)
+    {
+        if (id.Length == 3)
+        {
+            return id;
+        }
+
+        var airport = Airports.AllAirports.FirstOrDefault(a => a.IcaoId.Equals(id, StringComparison.OrdinalIgnoreCase));
+        return airport?.LocalId;
+    }
+
+    private static string ToFlightLevel(int? alt)
+    {
+        if (alt is null) return "";
+        return alt >= 18000 ? $"FL{alt.ToString()[..3]}" : alt.ToString();
+    }
+
+    private record struct SavedAirportPairRoutes(string DepartureId, string ArrivalId);
+
+    private const string SavedAirportPairRoutesStorageKey = "SavedAirportPairRoutes";
+
+}

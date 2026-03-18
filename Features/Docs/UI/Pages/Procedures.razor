@@ -1,0 +1,62 @@
+@page "/procedures"
+@using Microsoft.Extensions.Options
+@using ZoaReference.Features.Docs.Repositories
+@rendermode InteractiveServer
+
+@inject DocumentRepository DocumentRepository
+@inject IOptionsMonitor<AppSettings> AppSettings
+@inject IJSRuntime Js
+
+@using Microsoft.Extensions.Options
+@inject IOptions<AppSettings> Settings
+
+<PageTitle>Procedures - @Settings.Value.ARTCC Reference</PageTitle>
+
+<div>
+    <select @bind="_displayedPdfUrl" @bind:after="UpdateStoredUrl" class="p-2 bg-gray-700 text-gray-100 w-[600px]">
+        @foreach (var category in DocumentRepository.Categories)
+        {
+            <optgroup label="@category.Name" class="text-gray-400">
+                @foreach (var doc in category.Documents)
+                {
+                    <option value="@doc.Url" class="text-gray-100">@doc.Name</option>
+                }
+            </optgroup>
+        }
+    </select>
+</div>
+@if (!string.IsNullOrEmpty(_displayedPdfUrl))
+{
+    <div class="grow flex flex-col">
+        <object class="mt-2 pt-1 w-full grow" type="application/pdf" data="@(_displayedPdfUrl + "#view=Fit&zoom=page-fit")"></object>
+    </div>
+}
+
+@code {
+
+    private string _displayedPdfUrl = "";
+    private IJSObjectReference? _storage;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _storage = await Js.InvokeAsync<IJSObjectReference>("import", "./scripts/storage.js");
+            var savedUrl = await _storage.InvokeAsync<string?>("get", "proceduresPdfUrl");
+            if (savedUrl is not null)
+            {
+                _displayedPdfUrl = savedUrl;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task UpdateStoredUrl()
+    {
+        if (_storage is not null)
+        {
+            await _storage.InvokeVoidAsync("set", "proceduresPdfUrl", _displayedPdfUrl);
+        }
+    }
+
+}

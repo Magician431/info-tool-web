@@ -1,0 +1,50 @@
+﻿@using Microsoft.Extensions.Options
+@inject IOptions<AppSettings> Settings
+
+<!DOCTYPE html>
+<html lang="en" class="min-h-screen">
+
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+    <base href="/"/>
+    <link rel="stylesheet" href="app.css"/>
+    <link rel="stylesheet" href="ZoaReference.styles.css"/>
+    <link rel="icon" type="image/x-icon" href="favicon.ico"/>
+
+    <link rel="stylesheet" href="css/styles.css" asp-append-version="true"/>
+    <link rel="stylesheet" href="https://esm.sh/@@xterm/xterm@@5/css/xterm.css"/>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono&family=Public+Sans&display=swap"
+          rel="stylesheet">
+
+    <script>
+        window.SetFocusToElement = (element) => {
+            if (element !== null) {
+                element.focus();
+            }
+
+        };
+        window.SetFocusToId = (id) => {
+            const element = document.getElementById(id);
+            if (element !== null) {
+                element.focus();
+            }
+        };
+    </script>
+    <HeadOutlet/>
+    <title>@Settings.Value.ARTCC Reference</title>
+</head>
+
+<body class="bg-slate-800 text-gray-100 min-h-screen">
+<Routes/>
+<script src="_framework/blazor.web.js"></script>
+</body>
+
+</html>
+
+@code {
+
+}

@@ -1,0 +1,779 @@
+@page "/charts/{airportId?}"
+@using System.Text.RegularExpressions
+@using Microsoft.Extensions.Options
+@using ZoaReference.Features.Charts.Models
+@using ZoaReference.Features.Charts.Services
+@rendermode InteractiveServer
+
+@inject AviationApiChartService AviationApiChartService
+@inject StarApproachConnectionService StarApproachConnectionService
+@inject IOptionsMonitor<AppSettings> AppSettings
+@inject IJSRuntime Js
+@inject IOptions<AppSettings> Settings
+
+<PageTitle>Charts - @Settings.Value.ARTCC Reference</PageTitle>
+
+<style>
+    /* Target the PDF object specifically */
+    .pdf-invert-filter {
+        /* This filter inverts the white to black while keeping icons/text relatively crisp */
+        filter: invert(90%) hue-rotate(180deg) brightness(1.1) contrast(90%);
+        /* REMOVE the background-color rule from here */
+        display: block;
+    }
+
+    /* Force the object container to be light so our filter can invert it reliably */
+    object[type="application/pdf"] {
+        color-scheme: light !important; 
+        background-color: #ffffff !important; 
+    }
+</style>
+
+<SectionContent SectionName="sub-nav">
+    <div class="bg-slate-900 flex items-center gap-2 px-2 py-0.5 flex-wrap">
+        @foreach (var airport in _airports)
+        {
+            @if (airport.Type == AirportType.Other)
+            {
+                <div class="relative mr-2">
+                    <button class="@MakeAirportButtonClass(airport)" @onclick="() => UpdateCharts(airport.Id)">
+                        @FormatAirportId(airport)
+                    </button>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                         class="stroke-gray-100 w-4 h-4 absolute top-1 -right-4 hover:stroke-red-500 transition-colors hover:cursor-pointer"
+                         @onclick="args => RemoveAirport(airport, args)">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                        <title>Ctrl + Click to delete all custom airports</title>
+                    </svg>
+                </div>
+            }
+            else
+            {
+                <button class="@MakeAirportButtonClass(airport)" @onclick="() => UpdateCharts(airport.Id)">
+                    @FormatAirportId(airport)
+                </button>
+            }
+        }
+        <button @onclick="ShowAirportInput">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5">
+                <path
+                    d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z"/>
+            </svg>
+        </button>
+
+        @if (_airportInputShown)
+        {
+            <EditForm Model="@_airportForm" OnValidSubmit="@AirportSubmit">
+                <DataAnnotationsValidator/>
+                <InputText @ref="_airportInputReference" @bind-Value="_airportForm.AirportId" id="airportInput"
+                           class="uppercase bg-transparent border border-gray-500 focus:outline-none focus:bg-gray-700 p-0.5 w-24"
+                           placeholder="FAA/ICAO"/>
+                <ValidationMessage For="() => _airportForm.AirportId"/>
+            </EditForm>
+        }
+    </div>
+</SectionContent>
+
+<div class="flex grow">
+    <div class="w-1/3 p-1">
+        <div class=@("flex items-center gap-2 mb-2 ml-1" + (string.IsNullOrEmpty(_airportId) ? " collapse" : ""))>
+            <input @ref="@_filterInput" id="filterInput"
+                   class="bg-transparent border border-gray-500 focus:outline-none focus:bg-gray-700 p-0.5 w-40"
+                   type="text" @bind="_filterInputText" @bind:event="oninput" placeholder="Filter by name"
+                   autocomplete="off"/>
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                 class="stroke-gray-100 w-4 h-4 hover:stroke-red-500 transition-colors hover:cursor-pointer"
+                 @onclick="async () => await ClearFilterInput()">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+            <label class="flex items-center gap-0.5 cursor-pointer select-none whitespace-nowrap text-[10px] text-gray-400">
+                <input type="checkbox" checked="@_isDarkMode" @onchange="ToggleDarkMode" disabled="@_isAutoDarkMode"
+                       class="accent-sky-500" />
+                Dark Mode
+            </label>
+            <label class="flex items-center gap-0.5 cursor-pointer select-none whitespace-nowrap text-[10px] text-gray-400">
+                <input type="checkbox" checked="@_isAutoDarkMode" @onchange="ToggleAutoDarkMode"
+                       class="accent-sky-500" />
+                Auto Dark Mode
+            </label>
+        </div>
+
+        <div class="flex flex-col justify-start items-start gap-y-4">
+            @foreach (var charts in new List<List<Chart>> { FilteredCharts.Info, FilteredCharts.Sid, FilteredCharts.Star })
+            {
+                @if (charts.Any())
+                {
+                    <div class="flex flex-wrap justify-start items-start">
+                        @foreach (var chart in charts)
+                        {
+                            <button class="@MakeChartButtonClass(chart)"
+                                    @onclick="() => UpdateDisplayedChart(chart)">@chart.ChartName</button>
+                        }
+                    </div>
+                }
+            }
+
+            @if (FilteredCharts.Approach.Count > 0 || _connectedChartNames is not null)
+            {
+                <div class=@("flex items-center ml-1" + (string.IsNullOrEmpty(_airportId) ? " collapse" : ""))>
+                    <input id="starFixInput" list="starFixSuggestions"
+                           class="uppercase placeholder:normal-case bg-transparent border border-gray-500 focus:outline-none focus:bg-gray-700 p-0.5 w-40"
+                           type="text" @bind="_starFixInputText" @bind:event="oninput"
+                           @bind:after="OnStarFixInputChanged"
+                           placeholder="Connecting STAR/fix"
+                           @onkeydown="OnStarFixKeyDown"/>
+                    <datalist id="starFixSuggestions">
+                        @foreach (var suggestion in _starFixSuggestions)
+                        {
+                            <option value="@suggestion"/>
+                        }
+                    </datalist>
+                    @if (_cifpLoading)
+                    {
+                        <span class="text-xs text-gray-400 ml-1 animate-pulse">...</span>
+                    }
+                    else
+                    {
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                             class="stroke-gray-100 w-4 h-4 hover:stroke-red-500 transition-colors hover:cursor-pointer ml-1"
+                             @onclick="ClearStarFixInput">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    }
+                </div>
+                @if (_starAnalysis is not null)
+                {
+                    <div class="ml-1 text-gray-400" style="font-size: 10px;">
+                        @_starAnalysis.Identifier: @string.Join(", ", _starAnalysis.Waypoints)
+                    </div>
+                }
+                else if (_fixFilterActive && _activeConnections is not null && !_cifpLoading)
+                {
+                    <div class="ml-1 text-gray-400" style="font-size: 10px;">
+                        @if (_activeConnections.Count > 0)
+                        {
+                            @($"{_activeConnections.Count} approach{(_activeConnections.Count != 1 ? "es" : "")} via {_starFixInputText.ToUpperInvariant()}")
+                        }
+                        else
+                        {
+                            @("No approaches found")
+                        }
+                    </div>
+                }
+            }
+
+            @foreach (var runwayGroup in FilteredCharts.Approach.Keys.Order())
+            {
+                <div class="flex flex-wrap justify-start items-start">
+                    @foreach (var chart in FilteredCharts.Approach[runwayGroup])
+                    {
+                        <div class="flex flex-col items-center">
+                            <button class="@MakeChartButtonClass(chart)"
+                                    @onclick="() => UpdateDisplayedChart(chart)"
+                                    title="@GetConnectionInfo(chart.ChartName)">
+                                @chart.ChartName
+                            </button>
+                            @if (GetConnectionInfo(chart.ChartName) is { } connInfo)
+                            {
+                                <span class="text-sky-400" style="font-size: 9px; margin-top: 2px;">@connInfo</span>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+    <div class="w-2/3">
+        @if (_displayedChart is not null)
+        {
+            <div class="h-full flex flex-col">
+                <div class="pdf-wrapper pt-1 w-full grow bg-slate-950 @(_isDarkMode ? "pdf-container-dark" : "")">
+                    <object class="w-full h-full @(_isDarkMode ? "pdf-invert-filter" : "")"
+                            type="application/pdf"
+                            data="@(GetChartPdfUrl(_displayedChart) + "#view=Fit&zoom=page-fit")">
+                        <div class="p-4">
+                            <a href="@_displayedChart.Pages.OrderBy(p => p.PageNumber).First().PdfPath"
+                               target="_blank" class="text-sky-400 underline">
+                                Open chart PDF directly
+                            </a>
+                        </div>
+                    </object>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string? AirportId { get; set; }
+    private string _airportId = "";
+
+    private Chart? _displayedChart;
+
+    private OrganizedCharts _organizedCharts = new() { Info = [], Sid = [], Star = [], Approach = [] };
+    private readonly List<Airport> _airports = [];
+
+    private bool _airportInputShown;
+    private readonly AirportForm _airportForm = new();
+    private InputText? _airportInputReference;
+
+    private class AirportForm
+    {
+        [Required]
+        [StringLength(4, ErrorMessage = "ID cannot exceed 4 characters.")]
+        public string AirportId { get; set; }
+    }
+
+    private const string CustomAirportsStorageKey = "customAirports";
+    private const string ChartStateStorageKey = "chartState";
+    private const string DarkModeStorageKey = "darkMode";
+    private const string AutoDarkModeStorageKey = "autoDarkMode";
+
+    private ElementReference _filterInput;
+    private string _filterInputText = "";
+    private IJSObjectReference? _storage;
+
+    private string _starFixInputText = "";
+    private bool _cifpLoading;
+    private CifpStarData? _starAnalysis;
+    private List<ApproachConnection>? _activeConnections;
+    private HashSet<string>? _connectedChartNames;
+    private bool _fixFilterActive;
+    private CancellationTokenSource? _starFixDebounce;
+    private List<string> _starFixSuggestions = [];
+
+    private bool _isDarkMode;
+    private bool _isAutoDarkMode;
+
+    private OrganizedCharts FilteredCharts
+    {
+        get
+        {
+            var nameFiltered = new OrganizedCharts
+            {
+                Info = _organizedCharts.Info.Where(c => ChartContainsText(c, _filterInputText)).ToList(),
+                Sid = _organizedCharts.Sid.Where(c => ChartContainsText(c, _filterInputText)).ToList(),
+                Star = _organizedCharts.Star.Where(c => ChartContainsText(c, _filterInputText)).ToList(),
+                Approach = _organizedCharts.Approach
+                    .Where(kv => kv.Value.Any(c => ChartContainsText(c, _filterInputText)))
+                    .ToDictionary(
+                        k => k.Key,
+                        v => v.Value.Where(c => ChartContainsText(c, _filterInputText)).ToList())
+            };
+
+            if (_connectedChartNames is not { Count: > 0 })
+            {
+                return nameFiltered;
+            }
+
+            var filteredApproach = nameFiltered.Approach
+                .Select(kv => new KeyValuePair<string, List<Chart>>(
+                    kv.Key,
+                    kv.Value.Where(c => _connectedChartNames.Contains(c.ChartName)).ToList()))
+                .Where(kv => kv.Value.Count > 0)
+                .ToDictionary(kv => kv.Key, kv => kv.Value);
+
+            return nameFiltered with { Approach = filteredApproach };
+        }
+    }
+
+    private static bool ChartContainsText(Chart c, string s)
+    {
+        return c.ChartName.Contains(s, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string? GetConnectionInfo(string chartName)
+    {
+        if (_activeConnections is null)
+        {
+            return null;
+        }
+
+        var connections = _activeConnections
+            .Where(c => c.ApproachChartName == chartName)
+            .ToList();
+
+        if (connections.Count == 0)
+        {
+            return null;
+        }
+
+        return string.Join(", ", connections
+            .Select(c => $"{c.ConnectingFix} ({c.FixType})"));
+    }
+
+    private async Task OnStarFixInputChanged()
+    {
+        _starFixDebounce?.Cancel();
+
+        var input = _starFixInputText.Trim();
+        if (string.IsNullOrEmpty(input) || string.IsNullOrEmpty(_airportId))
+        {
+            ClearStarFixState();
+            return;
+        }
+
+        if (input.Length < 2)
+        {
+            return;
+        }
+
+        _starFixDebounce = new CancellationTokenSource();
+        var ct = _starFixDebounce.Token;
+
+        try
+        {
+            await Task.Delay(400, ct);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        await ApplyStarFixFilter(input, ct);
+    }
+
+    private async Task OnStarFixKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter")
+        {
+            return;
+        }
+
+        _starFixDebounce?.Cancel();
+
+        var input = _starFixInputText.Trim();
+        if (string.IsNullOrEmpty(input) || string.IsNullOrEmpty(_airportId))
+        {
+            ClearStarFixState();
+            return;
+        }
+
+        await ApplyStarFixFilter(input, CancellationToken.None);
+    }
+
+    private async Task ApplyStarFixFilter(string input, CancellationToken ct)
+    {
+        _cifpLoading = true;
+        _starAnalysis = null;
+        _activeConnections = null;
+        _connectedChartNames = null;
+        _fixFilterActive = false;
+        StateHasChanged();
+
+        try
+        {
+            if (StarApproachConnectionService.IsStarName(input))
+            {
+                var (star, connections) = await StarApproachConnectionService
+                    .FindConnectionsForStar(_airportId, input, ct);
+
+                if (ct.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                _starAnalysis = star;
+                _activeConnections = connections;
+                _connectedChartNames = connections.Count > 0
+                    ? new HashSet<string>(connections.Select(c => c.ApproachChartName))
+                    : null;
+            }
+
+            if (_starAnalysis is null)
+            {
+                var connections = await StarApproachConnectionService
+                    .FindConnectionsForFix(_airportId, input, ct);
+
+                if (ct.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                _activeConnections = connections;
+                _fixFilterActive = true;
+                _connectedChartNames = connections.Count > 0
+                    ? new HashSet<string>(connections.Select(c => c.ApproachChartName))
+                    : null;
+            }
+        }
+        catch (Exception) when (ct.IsCancellationRequested)
+        {
+            return;
+        }
+        finally
+        {
+            _cifpLoading = false;
+        }
+
+        StateHasChanged();
+    }
+
+    private void ClearStarFixInput()
+    {
+        _starFixInputText = "";
+        ClearStarFixState();
+    }
+
+    private void ClearStarFixState()
+    {
+        _starAnalysis = null;
+        _activeConnections = null;
+        _connectedChartNames = null;
+        _fixFilterActive = false;
+        _cifpLoading = false;
+    }
+
+    private void ShowAirportInput()
+    {
+        if (_airportInputShown) return;
+        _airportInputShown = true;
+    }
+
+    private async Task AirportSubmit()
+    {
+        var newAirport = new Airport(_airportForm.AirportId.ToUpper(), AirportType.Other, Guid.NewGuid());
+        _airports.Add(newAirport);
+        _airportInputShown = false;
+        _airportForm.AirportId = "";
+
+        await UpdateCharts(newAirport.Id);
+
+        if (_storage is not null)
+        {
+            var savedCustomAirports = await _storage.InvokeAsync<List<SavedAirport>?>("get", CustomAirportsStorageKey);
+            if (savedCustomAirports is not null)
+            {
+                savedCustomAirports.Add(new SavedAirport(newAirport.Id, newAirport.Guid));
+                await _storage.InvokeVoidAsync("set", CustomAirportsStorageKey, savedCustomAirports);
+            }
+            else
+            {
+                await _storage.InvokeVoidAsync("set", CustomAirportsStorageKey, new List<SavedAirport> { new(newAirport.Id, newAirport.Guid) });
+            }
+        }
+    }
+
+    private async Task RemoveAirport(Airport airport, MouseEventArgs args)
+    {
+        if (args.CtrlKey)
+        {
+            var currentAirportIsCustom = _airports.Any(a => a.Id == _airportId);
+            _airports.RemoveAll(a => a.Type == AirportType.Other);
+            if (currentAirportIsCustom)
+            {
+                _displayedChart = null;
+                _organizedCharts = new OrganizedCharts { Info = [], Sid = [], Star = [], Approach = [] };
+            }
+
+            if (_storage is not null)
+            {
+                await _storage.InvokeVoidAsync("set", CustomAirportsStorageKey, new List<SavedAirport>());
+            }
+        }
+        else
+        {
+            _airports.RemoveAll(a => a.Guid == airport.Guid);
+            if (airport.Id == _airportId)
+            {
+                _displayedChart = null;
+                _organizedCharts = new OrganizedCharts { Info = [], Sid = [], Star = [], Approach = [] };
+            }
+
+            if (_storage is not null)
+            {
+                var savedCustomAirports = await _storage.InvokeAsync<List<SavedAirport>?>("get", CustomAirportsStorageKey);
+                if (savedCustomAirports is not null)
+                {
+                    savedCustomAirports.RemoveAll(a => a.Guid == airport.Guid);
+                    await _storage.InvokeVoidAsync("set", CustomAirportsStorageKey, savedCustomAirports);
+                }
+            }
+        }
+    }
+
+    private async Task ToggleDarkMode(ChangeEventArgs e)
+    {
+        _isDarkMode = (bool)(e.Value ?? false);
+        if (_storage is not null)
+        {
+            await _storage.InvokeVoidAsync("set", DarkModeStorageKey, _isDarkMode);
+        }
+    }
+
+    private async Task ToggleAutoDarkMode(ChangeEventArgs e)
+    {
+        _isAutoDarkMode = (bool)(e.Value ?? false);
+        if (_storage is not null)
+        {
+            await _storage.InvokeVoidAsync("set", AutoDarkModeStorageKey, _isAutoDarkMode);
+        }
+        if (_isAutoDarkMode)
+        {
+            await SyncAutoDarkMode();
+        }
+    }
+
+    private async Task SyncAutoDarkMode()
+    {
+        if (!_isAutoDarkMode) return;
+        
+        try 
+        {
+            // Get the current hour from the user's browser
+            var currentHour = await Js.InvokeAsync<int>("eval", "new Date().getHours()");
+            
+            // Logic: Dark mode if hour is >= 20 (8 PM) OR < 6 (6 AM)
+            _isDarkMode = (currentHour >= 20 || currentHour < 6);
+        }
+        catch 
+        {
+            // Fallback: if JS fails, default to browser preference
+            _isDarkMode = await Js.InvokeAsync<bool>("eval", "window.matchMedia('(prefers-color-scheme: dark)').matches");
+        }
+        
+        StateHasChanged();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _airportId = AirportId ?? string.Empty;
+        if (!string.IsNullOrEmpty(_airportId))
+        {
+            await UpdateCharts(_airportId);
+        }
+
+        foreach (var airport in AppSettings.CurrentValue.ArtccAirports.Bravos)
+        {
+            _airports.Add(new Airport(airport, AirportType.Bravo, Guid.NewGuid()));
+        }
+
+        foreach (var airport in AppSettings.CurrentValue.ArtccAirports.Charlies)
+        {
+            _airports.Add(new Airport(airport, AirportType.Charlie, Guid.NewGuid()));
+        }
+
+        foreach (var airport in AppSettings.CurrentValue.ArtccAirports.Deltas)
+        {
+            _airports.Add(new Airport(airport, AirportType.Delta, Guid.NewGuid()));
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            if (_airportInputShown && _airportInputReference?.Element is not null)
+            {
+                await _airportInputReference.Element.Value.FocusAsync();
+            }
+            return;
+        }
+
+        _storage = await Js.InvokeAsync<IJSObjectReference>("import", "./scripts/storage.js");
+        var stateUpdated = false;
+
+        var savedCustomAirports = await _storage.InvokeAsync<List<SavedAirport>?>("get", CustomAirportsStorageKey);
+        if (savedCustomAirports is not null)
+        {
+            var customAirports = savedCustomAirports.Select(a => new Airport(a.Id, AirportType.Other, a.Guid));
+            _airports.AddRange(customAirports);
+            stateUpdated = true;
+        }
+
+        var savedDarkMode = await _storage.InvokeAsync<bool?>("get", DarkModeStorageKey);
+        if (savedDarkMode is not null)
+        {
+            _isDarkMode = savedDarkMode.Value;
+            stateUpdated = true;
+        }
+
+        var savedAutoDarkMode = await _storage.InvokeAsync<bool?>("get", AutoDarkModeStorageKey);
+        if (savedAutoDarkMode is not null)
+        {
+            _isAutoDarkMode = savedAutoDarkMode.Value;
+            if (_isAutoDarkMode) await SyncAutoDarkMode();
+            stateUpdated = true;
+        }
+
+        if (AirportId is null)
+        {
+            var savedState = await _storage.InvokeAsync<ChartState?>("get", ChartStateStorageKey);
+            if (savedState is not null)
+            {
+                await UpdateCharts(savedState.AirportId);
+                _displayedChart = savedState.Chart;
+                stateUpdated = true;
+            }
+        }
+
+        if (_airportInputShown && _airportInputReference?.Element is not null)
+        {
+            await _airportInputReference.Element.Value.FocusAsync();
+        }
+
+        if (stateUpdated)
+        {
+            StateHasChanged();
+        }
+    }
+
+    private async Task UpdateCharts(string id)
+    {
+        _airportId = id;
+        var charts = await AviationApiChartService.GetChartsForId(id);
+        _organizedCharts = OrganizeCharts(charts);
+        await ClearFilterInput();
+        ClearStarFixInput();
+        _ = LoadStarFixSuggestions(id);
+    }
+
+    private async Task LoadStarFixSuggestions(string airportId)
+    {
+        try
+        {
+            _starFixSuggestions = await StarApproachConnectionService
+                .GetAutocompleteSuggestions(airportId);
+            StateHasChanged();
+        }
+        catch (Exception)
+        {
+            _starFixSuggestions = [];
+        }
+    }
+
+    private async Task UpdateDisplayedChart(Chart? chart)
+    {
+        if (chart is null) return;
+
+        if (_isAutoDarkMode)
+        {
+            await SyncAutoDarkMode();
+        }
+
+        _displayedChart = chart;
+        if (_storage is not null)
+        {
+            await _storage.InvokeVoidAsync("set", ChartStateStorageKey, new ChartState(_airportId, _displayedChart));
+        }
+    }
+
+    private static string GetChartPdfUrl(Chart chart)
+        => $"/api/v1/charts/{Uri.EscapeDataString(chart.IcaoIdent)}/{Uri.EscapeDataString(chart.ChartName)}";
+
+    private async Task ClearFilterInput(bool setFocus = true)
+    {
+        _filterInputText = "";
+        if (setFocus)
+        {
+            await Js.InvokeVoidAsync("SetFocusToId", "filterInput");
+        }
+    }
+
+    private string MakeChartButtonClass(Chart chart)
+    {
+        const string baseClass = "border p-1 m-1 cursor-pointer text-xs w-32 h-12";
+        var borderColor = chart.ChartCode switch
+        {
+            "APD" => "border-green-500",
+            "MIN" => "border-orange-500",
+            "LAH" => "border-yellow-500",
+            "HOT" => "border-red-500",
+            "STAR" => "border-sky-500",
+            "IAP" => "border-violet-500",
+            "DP" => "border-pink-500",
+            _ => "border-gray-600"
+        };
+        var isSelected = _displayedChart?.ChartName == chart.ChartName && _displayedChart?.AirportName == chart.AirportName ? "bg-white text-black font-bold" : "hover:bg-gray-700 ";
+
+        return string.Join(" ", baseClass, borderColor, isSelected);
+    }
+
+    private enum AirportType
+    {
+        Bravo,
+        Charlie,
+        Delta,
+        Other
+    }
+
+    private record struct Airport(string Id, AirportType Type, Guid Guid);
+
+    private string MakeAirportButtonClass(Airport airport)
+    {
+        const string baseClass = "p-1";
+        var textColor = airport.Type switch
+        {
+            AirportType.Bravo => "text-orange-500",
+            AirportType.Charlie => "text-sky-400",
+            AirportType.Delta => "text-gray-300",
+            _ => "text-red-300"
+        };
+        var isSelected = airport.Id == _airportId ? "underline decoration-2 underline-offset-4 bg-gray-700" : "";
+        return string.Join(" ", baseClass, textColor, isSelected);
+    }
+
+    private class ChartState(string airportId, Chart? chart)
+    {
+        public string AirportId { get; } = airportId;
+        public Chart? Chart { get; } = chart;
+    }
+
+    private static int GetRankOrder(Chart chart)
+    {
+        return chart.ChartCode switch
+        {
+            "APD" => 0,
+            "MIN" => 1,
+            "LAH" => 2,
+            "HOT" => 3,
+            "STAR" => 4,
+            "IAP" => 5,
+            "DP" => 6,
+            _ => 7
+        };
+    }
+
+    private static string GetGroupKey(Chart chart)
+    {
+        return chart.ChartCode switch
+        {
+            "APD" => "info",
+            "MIN" => "info",
+            "LAH" => "info",
+            "HOT" => "info",
+            "STAR" => "star",
+            "IAP" => "approach",
+            "DP" => "sid",
+            "ODP" => "sid",
+            _ => "info"
+        };
+    }
+
+    private static string GetRunway(Chart chart)
+    {
+        const string runwayRegex = @"RWY [0-3][0-9][LRC]?(?:/[LRC])?(?:/[LRC])?";
+        var match = Regex.Match(chart.ChartName, runwayRegex);
+        return match.Success ? match.Groups[0].Value : "";
+    }
+
+    public record struct OrganizedCharts(List<Chart> Info, List<Chart> Star, List<Chart> Sid, Dictionary<string, List<Chart>> Approach);
+
+    private static OrganizedCharts OrganizeCharts(IEnumerable<Chart> charts)
+    {
+        var grouped = charts.GroupBy(GetGroupKey).ToDictionary(group => group.Key, group => group.ToList());
+        var info = grouped.TryGetValue("info", out var infoVals) ? infoVals.OrderBy(GetRankOrder).ToList() : [];
+        var star = grouped.TryGetValue("star", out var starVals) ? starVals : [];
+        var sid = grouped.TryGetValue("sid", out var sidVals) ? sidVals.OrderBy(GetRankOrder).ToList() : [];
+        var approach = grouped.TryGetValue("approach", out var approachVals) ? approachVals : [];
+        var approachGrouped = approach.GroupBy(GetRunway).ToDictionary(group => group.Key, group => group.ToList());
+        return new OrganizedCharts(info, star, sid, approachGrouped);
+    }
+
+    private static string FormatAirportId(Airport airport)
+    {
+        return airport.Id.Length == 4 && airport.Id.ToUpper().StartsWith("K") ? airport.Id[1..] : airport.Id;
+    }
+
+    private record struct SavedAirport(string Id, Guid Guid);
+}
